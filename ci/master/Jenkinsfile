@@ -23,7 +23,7 @@ pipeline {
                 checkout(
                     [$class: 'GitSCM',
                      branches: [[name: '*/main']],
-                     userRemoteConfigs: [[url: 'https://github.com/your-org/circle-guard-public.git']]]
+                     userRemoteConfigs: [[url: 'https://github.com/mcordoba12/circle-guard-public.git']]]
                 )
 
                 script {
