@@ -4,6 +4,10 @@ build/
 !**/src/**/build/
 **/build/
 
+# Compiled Output
+bin/
+**/bin/
+
 # Java
 *.class
 *.jar
@@ -46,3 +50,32 @@ web-build/
 *_data/
 pgdata/
 neo4jdata/
+
+# Performance Tests Results
+tests/performance/results/
+test-results/
+tests/performance/__pycache__/
+
+# Heap Dumps and Memory Analysis
+*.hprof
+java_pid*.hprof
+
+# Temporary Documentation
+TESTCONTAINERS_WINDOWS_FIX.md
+TESTCONTAINERS_SETUP.md
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Secrets and Credentials
+.env
+.env.local
+*.key
+*.pem
+
+# Out directory
+out/
+
+.claude

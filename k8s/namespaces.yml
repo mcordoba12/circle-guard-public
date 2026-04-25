@@ -1,0 +1,142 @@
+---
+# CircleGuard Kubernetes Namespaces
+# Define the three environments for CircleGuard deployment
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    environment: development
+    tier: dev
+    managed-by: kubernetes
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stage
+  labels:
+    environment: staging
+    tier: stage
+    managed-by: kubernetes
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: master
+  labels:
+    environment: production
+    tier: master
+    managed-by: kubernetes
+
+---
+# Network Policies for namespace isolation (optional but recommended)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-traffic
+  namespace: dev
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: development
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              environment: development
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53  # DNS
+        - protocol: UDP
+          port: 53
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-traffic
+  namespace: stage
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: staging
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              environment: staging
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-traffic
+  namespace: master
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: production
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              environment: production
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+---
+# Service Account for CircleGuard applications
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: circleguard-sa
+  namespace: dev
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: circleguard-sa
+  namespace: stage
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: circleguard-sa
+  namespace: master

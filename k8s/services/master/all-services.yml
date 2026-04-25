@@ -1,0 +1,917 @@
+---
+# CircleGuard All Services - MASTER Environment (Production)
+# 2 Replicas + HorizontalPodAutoscaler (min 2, max 6)
+# Image tag: latest (production ready)
+
+# ============================================================================
+# AUTH SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-auth-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-auth-service"
+  SERVER_PORT: "8180"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+  LOGGING_LEVEL_ROOT: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-auth-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-auth-service-production-12345"
+  JWT_EXPIRATION_HOURS: "24"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-auth-service
+  namespace: master
+  labels:
+    app: circleguard-auth-service
+    environment: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-auth-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-auth-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-auth-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: auth-service
+        image: circleguardacr.azurecr.io/circleguard-auth-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8180
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-auth-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-auth-service
+  namespace: master
+spec:
+  type: LoadBalancer
+  selector:
+    app: circleguard-auth-service
+  ports:
+  - port: 8180
+    targetPort: 8180
+    name: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-auth-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-auth-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+
+---
+# ============================================================================
+# IDENTITY SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-identity-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-identity-service"
+  SERVER_PORT: "8083"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-identity-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-identity-service-production-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-identity-service
+  namespace: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-identity-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-identity-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-identity-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: identity-service
+        image: circleguardacr.azurecr.io/circleguard-identity-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8083
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-identity-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-identity-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-identity-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-identity-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-identity-service
+  namespace: master
+spec:
+  type: ClusterIP
+  selector:
+    app: circleguard-identity-service
+  ports:
+  - port: 8083
+    targetPort: 8083
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-identity-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-identity-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+
+---
+# ============================================================================
+# FORM SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-form-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-form-service"
+  SERVER_PORT: "8086"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-form-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-form-service-production-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-form-service
+  namespace: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-form-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-form-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-form-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: form-service
+        image: circleguardacr.azurecr.io/circleguard-form-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8086
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-form-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-form-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-form-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-form-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8086
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8086
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-form-service
+  namespace: master
+spec:
+  type: ClusterIP
+  selector:
+    app: circleguard-form-service
+  ports:
+  - port: 8086
+    targetPort: 8086
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-form-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-form-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+
+---
+# ============================================================================
+# PROMOTION SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-promotion-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-promotion-service"
+  SERVER_PORT: "8088"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-promotion-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-promotion-service-production-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-promotion-service
+  namespace: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-promotion-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-promotion-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-promotion-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: promotion-service
+        image: circleguardacr.azurecr.io/circleguard-promotion-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8088
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-promotion-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8088
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-promotion-service
+  namespace: master
+spec:
+  type: ClusterIP
+  selector:
+    app: circleguard-promotion-service
+  ports:
+  - port: 8088
+    targetPort: 8088
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-promotion-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-promotion-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+
+---
+# ============================================================================
+# NOTIFICATION SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-notification-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-notification-service"
+  SERVER_PORT: "8082"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-notification-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-notification-service-production-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-notification-service
+  namespace: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-notification-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-notification-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-notification-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: notification-service
+        image: circleguardacr.azurecr.io/circleguard-notification-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8082
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-notification-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-notification-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-notification-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-notification-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-notification-service
+  namespace: master
+spec:
+  type: ClusterIP
+  selector:
+    app: circleguard-notification-service
+  ports:
+  - port: 8082
+    targetPort: 8082
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-notification-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-notification-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+
+---
+# ============================================================================
+# GATEWAY SERVICE
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-gateway-service-config
+  namespace: master
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SPRING_APPLICATION_NAME: "circleguard-gateway-service"
+  SERVER_PORT: "8087"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "WARN"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-gateway-service-secret
+  namespace: master
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "circleguard"
+  SPRING_DATASOURCE_PASSWORD: "postgres_master_password"
+  JWT_SECRET: "master-jwt-secret-key-circleguard-gateway-service-production-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-gateway-service
+  namespace: master
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: circleguard-gateway-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-gateway-service
+        environment: master
+    spec:
+      serviceAccountName: circleguard-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - circleguard-gateway-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: gateway-service
+        image: circleguardacr.azurecr.io/circleguard-gateway-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8087
+          name: http
+        envFrom:
+        - configMapRef:
+            name: circleguard-gateway-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.master.svc.cluster.local:5432/circleguard_master"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-gateway-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-gateway-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-gateway-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8087
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8087
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: acr-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-gateway-service
+  namespace: master
+spec:
+  type: LoadBalancer
+  selector:
+    app: circleguard-gateway-service
+  ports:
+  - port: 8087
+    targetPort: 8087
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: circleguard-gateway-service-hpa
+  namespace: master
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: circleguard-gateway-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60

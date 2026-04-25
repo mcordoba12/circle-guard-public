@@ -1,0 +1,171 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    environment {
+        REGISTRY = 'angela912'
+        SERVICE_NAME = 'circleguard-auth-service'
+        NAMESPACE = 'dev'
+        SPRING_PROFILES_ACTIVE = 'dev'
+        IMAGE_TAG = "${REGISTRY}/${SERVICE_NAME}:dev-${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "🔄 Checking out repository..."
+                checkout(
+                    [$class: 'GitSCM',
+                     branches: [[name: '*/main']],
+                     userRemoteConfigs: [[url: 'https://github.com/your-org/circle-guard-public.git']]]
+                )
+                echo "✅ Checkout completed"
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "🏗️  Building ${SERVICE_NAME}..."
+                sh '''
+                    ./gradlew :services:${SERVICE_NAME}:bootJar -x test
+                '''
+                echo "✅ Build completed"
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                echo "🧪 Running unit tests for ${SERVICE_NAME}..."
+                sh '''
+                    ./gradlew :services:${SERVICE_NAME}:test
+                '''
+                junit '**/build/test-results/test/*.xml'
+                echo "✅ Unit tests completed"
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo "🐳 Building Docker image: ${IMAGE_TAG}..."
+                sh '''
+                    docker build \
+                      -f services/${SERVICE_NAME}/Dockerfile \
+                      -t ${IMAGE_TAG} \
+                      .
+                '''
+                echo "✅ Docker build completed"
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                echo "📤 Pushing image to Docker Hub..."
+                withCredentials([usernamePassword(
+                    credentialsId: 'DOCKER_HUB_CREDENTIALS',
+                    usernameVariable: 'DOCKER_USERNAME',
+                    passwordVariable: 'DOCKER_PASSWORD'
+                )]) {
+                    sh '''
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+                        docker push ${IMAGE_TAG}
+                        echo "✅ Image pushed successfully"
+
+                        # Clean up old images
+                        echo "🧹 Cleaning up old images..."
+                        docker rmi ${IMAGE_TAG}
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy DEV') {
+            steps {
+                echo "🚀 Deploying to DEV namespace..."
+                withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                        export KUBECONFIG=${KUBECONFIG_FILE}
+
+                        # Check if manifest exists
+                        if [ ! -f "k8s/dev/${SERVICE_NAME}.yaml" ]; then
+                            echo "⚠️  Manifest not found at k8s/dev/${SERVICE_NAME}.yaml"
+                            exit 1
+                        fi
+
+                        # Update image in manifest and apply
+                        sed -i "s|image:.*${SERVICE_NAME}.*|image: ${IMAGE_TAG}|g" k8s/dev/${SERVICE_NAME}.yaml
+                        kubectl apply -f k8s/dev/${SERVICE_NAME}.yaml -n ${NAMESPACE}
+
+                        echo "✅ Deployment initiated"
+                    '''
+                }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                echo "🏥 Performing health check..."
+                withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                        export KUBECONFIG=${KUBECONFIG_FILE}
+
+                        echo "⏳ Waiting 30 seconds for pod to initialize..."
+                        sleep 30
+
+                        echo "📊 Checking pod status..."
+                        POD_NAME=$(kubectl get pods -n ${NAMESPACE} \
+                            -l app=${SERVICE_NAME} \
+                            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+                        if [ -z "$POD_NAME" ]; then
+                            echo "❌ No pod found for ${SERVICE_NAME}"
+                            exit 1
+                        fi
+
+                        POD_STATUS=$(kubectl get pod $POD_NAME -n ${NAMESPACE} \
+                            -o jsonpath='{.status.phase}' 2>/dev/null)
+
+                        if [ "$POD_STATUS" = "Running" ]; then
+                            echo "✅ Pod $POD_NAME is Running"
+                            kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME}
+                        else
+                            echo "❌ Pod is in $POD_STATUS state"
+                            kubectl describe pod $POD_NAME -n ${NAMESPACE}
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Pipeline completed successfully!"
+            // Optional: Send success notification
+            // sh 'curl -X POST https://your-slack-webhook -d "{\\"text\\": \\"${SERVICE_NAME} deployment to DEV successful\\"}"'
+        }
+
+        failure {
+            echo "❌ Pipeline failed!"
+            // Send failure notification
+            sh '''
+                echo "Pipeline failed for ${SERVICE_NAME}"
+                # Optional: Send to Slack
+                # curl -X POST https://your-slack-webhook -d "{\\"text\\": \\"${SERVICE_NAME} deployment failed\\"}"
+            '''
+        }
+
+        always {
+            echo "🧹 Cleaning up..."
+            sh '''
+                # Clean up Docker images
+                docker image prune -f --filter "until=24h" || true
+            '''
+        }
+    }
+}

@@ -1,8 +1,6 @@
-jwt:
-  secret: "my-super-secret-test-key-32-chars-long"
-  expiration: 3600000
-
 spring:
+  application:
+    name: circleguard-auth-service
   main:
     allow-bean-definition-overriding: true
   datasource:
@@ -14,3 +12,21 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop
+  flyway:
+    enabled: false
+  ldap:
+    urls: ldap://localhost:389
+    base: dc=test,dc=edu
+    username: cn=admin,dc=test,dc=edu
+    password: admin
+
+jwt:
+  secret: "my-super-secret-test-key-32-chars-long"
+  expiration: 3600000
+
+qr:
+  secret: "my-qr-secret-key-for-test-1234567890"
+  expiration: 300
+
+server:
+  port: 8180

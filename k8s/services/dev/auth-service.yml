@@ -1,0 +1,144 @@
+---
+# CircleGuard Auth Service - DEV Environment
+# Port: 8180
+# Type: LoadBalancer (API entry point)
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-auth-service-config
+  namespace: dev
+data:
+  SPRING_PROFILES_ACTIVE: "dev"
+  SPRING_APPLICATION_NAME: "circleguard-auth-service"
+  SERVER_PORT: "8180"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "DEBUG"
+  SPRING_FLYWAY_REPAIR_ON_MIGRATE: "true"
+  SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+  SPRING_FLYWAY_OUT_OF_ORDER: "true"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres.dev.svc.cluster.local:5432/circleguard_auth"
+  SPRING_DATASOURCE_USERNAME: "admin"
+  SPRING_LDAP_URLS: "ldap://openldap.dev.svc.cluster.local:389"
+  SPRING_LDAP_BASE: "dc=circleguard,dc=edu"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-auth-service-secret
+  namespace: dev
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_PASSWORD: "password"
+  JWT_SECRET: "dev-jwt-secret-key-circleguard-auth-service-12345"
+  JWT_EXPIRATION_HOURS: "24"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-auth-service
+  namespace: dev
+  labels:
+    app: circleguard-auth-service
+    environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: circleguard-auth-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-auth-service
+        environment: dev
+    spec:
+      serviceAccountName: circleguard-sa
+      containers:
+      - name: auth-service
+        image: angela912/circleguard-auth-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8180
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: circleguard-auth-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.dev.svc.cluster.local:5432/circleguard"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: JWT_SECRET
+        - name: JWT_EXPIRATION_HOURS
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-auth-service-secret
+              key: JWT_EXPIRATION_HOURS
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "256Mi"
+            cpu: "150m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: acr-credentials
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-auth-service
+  namespace: dev
+  labels:
+    app: circleguard-auth-service
+    environment: dev
+spec:
+  type: LoadBalancer
+  selector:
+    app: circleguard-auth-service
+  ports:
+  - port: 8180
+    targetPort: 8180
+    protocol: TCP
+    name: http
+  sessionAffinity: ClientIP

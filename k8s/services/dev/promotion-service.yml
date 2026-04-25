@@ -1,0 +1,138 @@
+---
+# CircleGuard Promotion Service - DEV Environment
+# Port: 8088
+# Type: ClusterIP (internal)
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-promotion-service-config
+  namespace: dev
+data:
+  SPRING_PROFILES_ACTIVE: "dev"
+  SPRING_APPLICATION_NAME: "circleguard-promotion-service"
+  SERVER_PORT: "8088"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "DEBUG"
+  SPRING_FLYWAY_REPAIR_ON_MIGRATE: "true"
+  SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+  SPRING_FLYWAY_OUT_OF_ORDER: "true"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres.dev.svc.cluster.local:5432/circleguard_promotion"
+  SPRING_DATASOURCE_USERNAME: "admin"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka-broker.dev.svc.cluster.local:9092"
+  SPRING_NEO4J_URI: "bolt://neo4j.dev.svc.cluster.local:7687"
+  SPRING_DATA_REDIS_HOST: "redis.dev.svc.cluster.local"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-promotion-service-secret
+  namespace: dev
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_PASSWORD: "password"
+  JWT_SECRET: "dev-jwt-secret-key-circleguard-promotion-service-12345"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-promotion-service
+  namespace: dev
+  labels:
+    app: circleguard-promotion-service
+    environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: circleguard-promotion-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-promotion-service
+        environment: dev
+    spec:
+      serviceAccountName: circleguard-sa
+      containers:
+      - name: promotion-service
+        image: angela912/circleguard-promotion-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8088
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: circleguard-promotion-service-config
+        - configMapRef:
+            name: circleguard-infra-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres.dev.svc.cluster.local:5432/circleguard"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: SPRING_DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-promotion-service-secret
+              key: JWT_SECRET
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "256Mi"
+            cpu: "150m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8088
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: acr-credentials
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-promotion-service
+  namespace: dev
+  labels:
+    app: circleguard-promotion-service
+    environment: dev
+spec:
+  type: ClusterIP
+  selector:
+    app: circleguard-promotion-service
+  ports:
+  - port: 8088
+    targetPort: 8088
+    protocol: TCP
+    name: http

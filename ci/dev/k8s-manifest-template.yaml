@@ -1,0 +1,251 @@
+# Template para manifests de Kubernetes - Servicios CircleGuard DEV
+# Ubica este archivo en: k8s/dev/circleguard-<nombre>-service.yaml
+#
+# Ejemplo para auth-service:
+# k8s/dev/circleguard-auth-service.yaml
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    environment: development
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: circleguard-auth-service
+  namespace: dev
+  labels:
+    app: circleguard-auth-service
+    environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: circleguard-auth-service
+  template:
+    metadata:
+      labels:
+        app: circleguard-auth-service
+        environment: dev
+    spec:
+      containers:
+      - name: auth-service
+        # NOTA: La imagen será reemplazada por el pipeline con:
+        # circleguardacr.azurecr.io/circleguard-auth-service:dev-${BUILD_NUMBER}
+        image: circleguardacr.azurecr.io/circleguard-auth-service:dev-latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8180
+          name: http
+          protocol: TCP
+
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "dev"
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: circleguard-config
+              key: datasource.url
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-secrets
+              key: datasource.password
+        - name: SPRING_REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: circleguard-config
+              key: redis.host
+        - name: SPRING_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: circleguard-secrets
+              key: redis.password
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: circleguard-config
+              key: kafka.servers
+
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8180
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+      # ImagePullSecrets para acceder a ACR privado
+      imagePullSecrets:
+      - name: acr-credentials
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: circleguard-auth-service
+  namespace: dev
+  labels:
+    app: circleguard-auth-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8180
+    targetPort: 8180
+    protocol: TCP
+    name: http
+  selector:
+    app: circleguard-auth-service
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-config
+  namespace: dev
+data:
+  # Base de datos
+  datasource.url: "jdbc:postgresql://postgres-service:5432/circleguard_dev"
+
+  # Redis
+  redis.host: "redis-service"
+  redis.port: "6379"
+
+  # Kafka
+  kafka.servers: "kafka-service:9092"
+
+  # Neo4j (para Promotion Service)
+  neo4j.uri: "neo4j://neo4j-service:7687"
+
+  # Configuración de logging
+  logging.level.root: "INFO"
+  logging.level.com.circleguard: "DEBUG"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: circleguard-secrets
+  namespace: dev
+type: Opaque
+stringData:
+  # Base de datos
+  datasource.password: "postgres_password"
+
+  # Redis
+  redis.password: "redis_password"
+
+  # Neo4j
+  neo4j.password: "neo4j_password"
+
+  # JWT (opcional)
+  jwt.secret: "your-jwt-secret-key"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acr-credentials
+  namespace: dev
+type: kubernetes.io/dockercfg
+data:
+  # Base64 encoded docker config
+  # Generar con:
+  # kubectl create secret docker-registry acr-credentials \
+  #   --docker-server=circleguardacr.azurecr.io \
+  #   --docker-username=<client-id> \
+  #   --docker-password=<client-secret> \
+  #   -n dev \
+  #   --dry-run=client -o yaml
+  .dockercfg: |
+    eyJjaXJjbGVndWFyZGFjci5henVyZWNyLmlvIjp7ImF1dGgiOiJkR0Z2YjIwek5qQTJCa2gzWW1GelpRPT0ifX0=
+
+---
+# Nota: Los siguientes son ejemplos de recursos compartidos
+# que deberían estar en un namespace o ConfigMap global
+
+# ConfigMap para variables compartidas entre servicios
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-shared-config
+  namespace: dev
+data:
+  ENVIRONMENT: "dev"
+  LOG_LEVEL: "DEBUG"
+  API_GATEWAY_URL: "http://circleguard-gateway-service:8087"
+  AUTH_SERVICE_URL: "http://circleguard-auth-service:8180"
+  PROMOTION_SERVICE_URL: "http://circleguard-promotion-service:8088"
+
+---
+# Horizontal Pod Autoscaler (opcional, para producción)
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: circleguard-auth-service-hpa
+#   namespace: dev
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: circleguard-auth-service
+#   minReplicas: 1
+#   maxReplicas: 3
+#   metrics:
+#   - type: Resource
+#     resource:
+#       name: cpu
+#       target:
+#         type: Utilization
+#         averageUtilization: 70
+
+---
+# Network Policy (opcional, para seguridad)
+# apiVersion: networking.k8s.io/v1
+# kind: NetworkPolicy
+# metadata:
+#   name: circleguard-auth-service-network-policy
+#   namespace: dev
+# spec:
+#   podSelector:
+#     matchLabels:
+#       app: circleguard-auth-service
+#   policyTypes:
+#   - Ingress
+#   - Egress
+#   ingress:
+#   - from:
+#     - namespaceSelector:
+#         matchLabels:
+#           name: dev
+#   egress:
+#   - to:
+#     - namespaceSelector:
+#         matchLabels:
+#           name: dev

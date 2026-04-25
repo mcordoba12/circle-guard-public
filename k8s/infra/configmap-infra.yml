@@ -1,0 +1,113 @@
+---
+# Shared Infrastructure ConfigMap
+# Contains configuration for PostgreSQL, Kafka, Redis, and Neo4j
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-infra-config
+  namespace: dev
+data:
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres.dev.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "circleguard_dev"
+  POSTGRES_USER: "circleguard"
+
+  # Kafka Configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker.dev.svc.cluster.local:9092"
+  KAFKA_BROKERS: "kafka-broker.dev.svc.cluster.local:9092"
+  KAFKA_ZOOKEEPER_SERVERS: "kafka-zookeeper.dev.svc.cluster.local:2181"
+
+  # Redis Configuration
+  REDIS_HOST: "redis.dev.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # Neo4j Configuration
+  NEO4J_HOST: "neo4j.dev.svc.cluster.local"
+  NEO4J_PORT: "7687"
+  NEO4J_SCHEME: "neo4j"
+  NEO4J_USERNAME: "neo4j"
+
+  # Logging
+  LOGGING_LEVEL_ROOT: "INFO"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "DEBUG"
+
+  # Spring Boot Common
+  SERVER_SERVLET_CONTEXT_PATH: "/"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,actuator"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-infra-config
+  namespace: stage
+data:
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres.stage.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "circleguard_stage"
+  POSTGRES_USER: "circleguard"
+
+  # Kafka Configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker.stage.svc.cluster.local:9092"
+  KAFKA_BROKERS: "kafka-broker.stage.svc.cluster.local:9092"
+  KAFKA_ZOOKEEPER_SERVERS: "kafka-zookeeper.stage.svc.cluster.local:2181"
+
+  # Redis Configuration
+  REDIS_HOST: "redis.stage.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # Neo4j Configuration
+  NEO4J_HOST: "neo4j.stage.svc.cluster.local"
+  NEO4J_PORT: "7687"
+  NEO4J_SCHEME: "neo4j"
+  NEO4J_USERNAME: "neo4j"
+
+  # Logging
+  LOGGING_LEVEL_ROOT: "INFO"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "INFO"
+
+  # Spring Boot Common
+  SERVER_SERVLET_CONTEXT_PATH: "/"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,actuator"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: circleguard-infra-config
+  namespace: master
+data:
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres.master.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "circleguard_master"
+  POSTGRES_USER: "circleguard"
+
+  # Kafka Configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker.master.svc.cluster.local:9092"
+  KAFKA_BROKERS: "kafka-broker.master.svc.cluster.local:9092"
+  KAFKA_ZOOKEEPER_SERVERS: "kafka-zookeeper.master.svc.cluster.local:2181"
+
+  # Redis Configuration
+  REDIS_HOST: "redis.master.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # Neo4j Configuration
+  NEO4J_HOST: "neo4j.master.svc.cluster.local"
+  NEO4J_PORT: "7687"
+  NEO4J_SCHEME: "neo4j"
+  NEO4J_USERNAME: "neo4j"
+
+  # Logging
+  LOGGING_LEVEL_ROOT: "WARN"
+  LOGGING_LEVEL_COM_CIRCLEGUARD: "INFO"
+
+  # Spring Boot Common
+  SERVER_SERVLET_CONTEXT_PATH: "/"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,actuator"

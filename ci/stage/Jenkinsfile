@@ -1,0 +1,268 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    environment {
+        ACR_REGISTRY = 'circleguardacr.azurecr.io'
+        NAMESPACE = 'stage'
+        SPRING_PROFILES_ACTIVE = 'stage'
+        SERVICES = 'auth-service,identity-service,form-service,gateway-service,promotion-service,notification-service'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "🔄 Checking out repository..."
+                checkout(
+                    [$class: 'GitSCM',
+                     branches: [[name: '*/main']],
+                     userRemoteConfigs: [[url: 'https://github.com/your-org/circle-guard-public.git']]]
+                )
+                echo "✅ Checkout completed"
+            }
+        }
+
+        stage('Build All Services') {
+            steps {
+                echo "🏗️  Building all 6 services in parallel..."
+                parallel(
+                    'auth-service': {
+                        sh './gradlew :services:circleguard-auth-service:bootJar -x test'
+                    },
+                    'identity-service': {
+                        sh './gradlew :services:circleguard-identity-service:bootJar -x test'
+                    },
+                    'form-service': {
+                        sh './gradlew :services:circleguard-form-service:bootJar -x test'
+                    },
+                    'gateway-service': {
+                        sh './gradlew :services:circleguard-gateway-service:bootJar -x test'
+                    },
+                    'promotion-service': {
+                        sh './gradlew :services:circleguard-promotion-service:bootJar -x test'
+                    },
+                    'notification-service': {
+                        sh './gradlew :services:circleguard-notification-service:bootJar -x test'
+                    }
+                )
+                echo "✅ All services built successfully"
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                echo "🧪 Running unit tests for all services..."
+                parallel(
+                    'auth-service-tests': {
+                        sh './gradlew :services:circleguard-auth-service:test'
+                    },
+                    'identity-service-tests': {
+                        sh './gradlew :services:circleguard-identity-service:test'
+                    },
+                    'form-service-tests': {
+                        sh './gradlew :services:circleguard-form-service:test'
+                    },
+                    'gateway-service-tests': {
+                        sh './gradlew :services:circleguard-gateway-service:test'
+                    },
+                    'promotion-service-tests': {
+                        sh './gradlew :services:circleguard-promotion-service:test'
+                    },
+                    'notification-service-tests': {
+                        sh './gradlew :services:circleguard-notification-service:test'
+                    }
+                )
+
+                // Publicar resultados JUnit
+                junit '**/build/test-results/test/*.xml'
+                echo "✅ Unit tests completed"
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                echo "🐳 Building and pushing Docker images to ACR..."
+                withCredentials([usernamePassword(
+                    credentialsId: 'ACR_CREDENTIALS',
+                    usernameVariable: 'ACR_USERNAME',
+                    passwordVariable: 'ACR_PASSWORD'
+                )]) {
+                    sh '''
+                        echo ${ACR_PASSWORD} | docker login -u ${ACR_USERNAME} --password-stdin ${ACR_REGISTRY}
+
+                        # Build and push all 6 images
+                        for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
+                            SERVICE_FULL="circleguard-${SERVICE}"
+                            IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
+
+                            echo "📦 Building image: ${IMAGE_TAG}"
+                            docker build \
+                              -f services/${SERVICE_FULL}/Dockerfile \
+                              -t ${IMAGE_TAG} \
+                              .
+
+                            echo "📤 Pushing image: ${IMAGE_TAG}"
+                            docker push ${IMAGE_TAG}
+                        done
+
+                        # Clean up old images
+                        echo "🧹 Cleaning up Docker images..."
+                        docker image prune -f --filter "until=48h" || true
+                    '''
+                }
+                echo "✅ Docker images built and pushed successfully"
+            }
+        }
+
+        stage('Deploy STAGE') {
+            steps {
+                echo "🚀 Deploying to STAGE namespace..."
+                withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                        export KUBECONFIG=${KUBECONFIG_FILE}
+
+                        # Create namespace if not exists
+                        kubectl create namespace stage --dry-run=client -o yaml | kubectl apply -f -
+
+                        # Deploy all services
+                        for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
+                            SERVICE_FULL="circleguard-${SERVICE}"
+                            MANIFEST="k8s/stage/${SERVICE_FULL}.yaml"
+
+                            if [ -f "$MANIFEST" ]; then
+                                echo "Deploying ${SERVICE_FULL}..."
+                                IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
+                                sed -i "s|image:.*${SERVICE_FULL}.*|image: ${IMAGE_TAG}|g" "$MANIFEST"
+                                kubectl apply -f "$MANIFEST" -n stage
+                            else
+                                echo "⚠️  Manifest not found: $MANIFEST"
+                            fi
+                        done
+
+                        echo "✅ Deployment initiated"
+                        sleep 30
+                        kubectl get pods -n stage
+                    '''
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            steps {
+                echo "🔗 Running integration tests..."
+                parallel(
+                    'auth-integration': {
+                        sh './gradlew :services:circleguard-auth-service:integrationTest -P integration || true'
+                    },
+                    'form-integration': {
+                        sh './gradlew :services:circleguard-form-service:integrationTest -P integration || true'
+                    },
+                    'gateway-integration': {
+                        sh './gradlew :services:circleguard-gateway-service:integrationTest -P integration || true'
+                    },
+                    'promotion-integration': {
+                        sh './gradlew :services:circleguard-promotion-service:integrationTest -P integration || true'
+                    }
+                )
+
+                junit '**/build/test-results/integrationTest/*.xml' || true
+                echo "✅ Integration tests completed"
+            }
+        }
+
+        stage('E2E Tests') {
+            steps {
+                echo "🧬 Running E2E tests..."
+                sh '''
+                    # Run E2E tests from all services
+                    ./gradlew test --tests '*E2E*' || true
+                '''
+
+                junit '**/build/test-results/test/*.xml' || true
+                echo "✅ E2E tests completed"
+            }
+        }
+
+        stage('Performance Tests') {
+            steps {
+                echo "⚡ Running performance tests (2 minutes, 30 users)..."
+                sh '''
+                    cd tests/performance
+
+                    # Run locust performance test
+                    locust -f locustfile.py \
+                      --headless \
+                      --host=http://localhost:8180 \
+                      --users=30 \
+                      --spawn-rate=5 \
+                      --run-time=2m \
+                      --csv=results/stage-perf-report
+
+                    # Check error rate
+                    ERROR_RATE=$(grep "TOTAL" results/stage-perf-report_stats.csv | awk -F',' '{print $4}')
+                    echo "Error Rate: ${ERROR_RATE}%"
+
+                    if (( $(echo "$ERROR_RATE > 5" | bc -l) )); then
+                        echo "❌ Error rate (${ERROR_RATE}%) exceeded threshold (5%)"
+                        exit 1
+                    fi
+
+                    echo "✅ Performance tests passed"
+                '''
+            }
+        }
+
+        stage('Approval Gate') {
+            steps {
+                echo "🚨 Waiting for approval to promote to MASTER..."
+                input(
+                    message: '¿Está todo validado en STAGE? ¿Quieres promover a MASTER?',
+                    ok: 'Sí, promover a MASTER',
+                    submitterParameter: 'APPROVED_BY'
+                )
+                echo "✅ Pipeline approved by: ${APPROVED_BY}"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ STAGE Pipeline completed successfully!"
+            sh '''
+                echo "Pipeline STAGE successful - Ready for MASTER promotion"
+            '''
+        }
+
+        failure {
+            echo "❌ STAGE Pipeline failed!"
+            sh '''
+                echo "Pipeline failed - Rolling back STAGE deployment"
+                export KUBECONFIG=$(cat /dev/shm/kubeconfig 2>/dev/null || echo "")
+
+                if [ -n "$KUBECONFIG" ]; then
+                    kubectl rollout undo deployment -l app=circleguard -n stage || true
+                fi
+            '''
+        }
+
+        always {
+            echo "🧹 Cleaning up..."
+            sh '''
+                # Archive performance reports
+                mkdir -p reports
+                cp tests/performance/results/*.csv reports/ 2>/dev/null || true
+
+                # Clean Docker images
+                docker image prune -f --filter "until=24h" || true
+            '''
+
+            // Archive reports
+            archiveArtifacts artifacts: 'reports/**/*.csv', allowEmptyArchive: true
+        }
+    }
+}
