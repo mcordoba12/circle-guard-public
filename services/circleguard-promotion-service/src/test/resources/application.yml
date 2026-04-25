@@ -5,7 +5,7 @@ spring:
     url: jdbc:h2:mem:testdb
     driver-class-name: org.h2.Driver
     username: sa
-    password: password
+    password: ""
   jpa:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
@@ -18,4 +18,16 @@ spring:
     uri: bolt://localhost:7687
     authentication:
       username: neo4j
-      password: neo4j
+      password: password
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+jwt:
+  secret: "test-secret-key-for-testing-purposes-minimum-32-chars-long"
+  expiration: 3600000
+
+qr:
+  secret: "test-qr-secret-key-for-testing-purposes-minimum-32-chars"
+  expiration: 300
