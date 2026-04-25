@@ -22,7 +22,7 @@ pipeline {
                 echo "🔄 Checking out and validating branch..."
                 checkout(
                     [$class: 'GitSCM',
-                     branches: [[name: '*/main']],
+                     branches: [[name: '*/master']],
                      userRemoteConfigs: [[url: 'https://github.com/mcordoba12/circle-guard-public.git']]]
                 )
 
@@ -30,8 +30,8 @@ pipeline {
                     def branch = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
                     echo "Current branch: ${branch}"
 
-                    if (branch != 'main' && branch != 'master') {
-                        error("❌ Pipeline MASTER debe ejecutarse desde rama 'main' o 'master', actual: ${branch}")
+                    if (branch != 'master') {
+                        error("❌ Pipeline MASTER debe ejecutarse desde rama 'master', actual: ${branch}")
                     }
                     echo "✅ Branch validation passed"
                 }

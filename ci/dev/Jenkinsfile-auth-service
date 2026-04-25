@@ -21,7 +21,7 @@ pipeline {
                 echo "🔄 Checking out repository..."
                 checkout(
                     [$class: 'GitSCM',
-                     branches: [[name: '*/main']],
+                     branches: [[name: '*/master']],
                      userRemoteConfigs: [[url: 'https://github.com/mcordoba12/circle-guard-public.git']]]
                 )
                 echo "✅ Checkout completed"
