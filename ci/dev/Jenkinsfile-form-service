@@ -91,14 +91,15 @@ pipeline {
                         export KUBECONFIG=${KUBECONFIG_FILE}
 
                         # Check if manifest exists
-                        if [ ! -f "k8s/dev/${SERVICE_NAME}.yaml" ]; then
-                            echo "⚠️  Manifest not found at k8s/dev/${SERVICE_NAME}.yaml"
+                        MANIFEST="k8s/services/dev/form-service.yml"
+                        if [ ! -f "$MANIFEST" ]; then
+                            echo "⚠️  Manifest not found at $MANIFEST"
                             exit 1
                         fi
 
                         # Update image in manifest and apply
-                        sed -i "s|image:.*${SERVICE_NAME}.*|image: ${IMAGE_TAG}|g" k8s/dev/${SERVICE_NAME}.yaml
-                        kubectl apply -f k8s/dev/${SERVICE_NAME}.yaml -n ${NAMESPACE}
+                        sed -i "s|image:.*${SERVICE_NAME}.*|image: ${IMAGE_TAG}|g" $MANIFEST
+                        kubectl apply -f $MANIFEST -n ${NAMESPACE}
 
                         echo "✅ Deployment initiated"
                     '''
