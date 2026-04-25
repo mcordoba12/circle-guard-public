@@ -32,3 +32,13 @@ dependencies {
     testImplementation("org.testcontainers:postgresql:1.19.3")
     testImplementation("org.testcontainers:neo4j:1.19.3")
 }
+
+// Task to run only unit tests, excluding E2E and integration tests
+tasks.register<Test>("unitTest") {
+    val test by tasks.getting(Test::class)
+    classpath = test.classpath
+    testClassesDirs = test.testClassesDirs
+
+    exclude("**/*E2ETest.class")
+    exclude("**/*IntegrationTest.class")
+}

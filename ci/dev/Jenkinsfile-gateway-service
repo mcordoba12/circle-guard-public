@@ -42,11 +42,9 @@ pipeline {
             steps {
                 echo "🧪 Running unit tests for ${SERVICE_NAME}..."
                 sh '''
-                    ./gradlew :services:${SERVICE_NAME}:test \
-                      --exclude-tests "*E2ETest" \
-                      --exclude-tests "*IntegrationTest"
+                    ./gradlew :services:${SERVICE_NAME}:unitTest
                 '''
-                junit '**/build/test-results/test/*.xml'
+                junit '**/build/test-results/unitTest/*.xml'
                 echo "✅ Unit tests completed"
             }
         }

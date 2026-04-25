@@ -18,3 +18,13 @@ dependencies {
     testImplementation("org.springframework.kafka:spring-kafka-test")
     testImplementation("com.h2database:h2")
 }
+
+// Task to run only unit tests, excluding E2E and integration tests
+tasks.register<Test>("unitTest") {
+    val test by tasks.getting(Test::class)
+    classpath = test.classpath
+    testClassesDirs = test.testClassesDirs
+
+    exclude("**/*E2ETest.class")
+    exclude("**/*IntegrationTest.class")
+}
