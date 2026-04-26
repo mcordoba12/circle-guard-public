@@ -8,10 +8,9 @@ pipeline {
     }
 
     environment {
-        ACR_REGISTRY = 'circleguardacr.azurecr.io'
+        REGISTRY = 'angela912'
         NAMESPACE = 'stage'
         SPRING_PROFILES_ACTIVE = 'stage'
-        SERVICES = 'auth-service,identity-service,form-service,gateway-service,promotion-service,notification-service'
     }
 
     stages {
@@ -28,86 +27,126 @@ pipeline {
         }
 
         stage('Build All Services') {
-            steps {
-                echo "🏗️  Building all 6 services in parallel..."
-                parallel(
-                    'auth-service': {
+            parallel {
+                stage('auth-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-auth-service..."
                         sh './gradlew :services:circleguard-auth-service:bootJar -x test'
-                    },
-                    'identity-service': {
+                    }
+                }
+
+                stage('identity-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-identity-service..."
                         sh './gradlew :services:circleguard-identity-service:bootJar -x test'
-                    },
-                    'form-service': {
+                    }
+                }
+
+                stage('form-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-form-service..."
                         sh './gradlew :services:circleguard-form-service:bootJar -x test'
-                    },
-                    'gateway-service': {
+                    }
+                }
+
+                stage('gateway-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-gateway-service..."
                         sh './gradlew :services:circleguard-gateway-service:bootJar -x test'
-                    },
-                    'promotion-service': {
+                    }
+                }
+
+                stage('promotion-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-promotion-service..."
                         sh './gradlew :services:circleguard-promotion-service:bootJar -x test'
-                    },
-                    'notification-service': {
+                    }
+                }
+
+                stage('notification-service') {
+                    steps {
+                        echo "🏗️  Building circleguard-notification-service..."
                         sh './gradlew :services:circleguard-notification-service:bootJar -x test'
                     }
-                )
-                echo "✅ All services built successfully"
+                }
             }
         }
 
         stage('Unit Tests') {
-            steps {
-                echo "🧪 Running unit tests for all services..."
-                parallel(
-                    'auth-service-tests': {
+            parallel {
+                stage('auth-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for auth-service..."
                         sh './gradlew :services:circleguard-auth-service:test'
-                    },
-                    'identity-service-tests': {
+                    }
+                }
+
+                stage('identity-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for identity-service..."
                         sh './gradlew :services:circleguard-identity-service:test'
-                    },
-                    'form-service-tests': {
+                    }
+                }
+
+                stage('form-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for form-service..."
                         sh './gradlew :services:circleguard-form-service:test'
-                    },
-                    'gateway-service-tests': {
+                    }
+                }
+
+                stage('gateway-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for gateway-service..."
                         sh './gradlew :services:circleguard-gateway-service:test'
-                    },
-                    'promotion-service-tests': {
+                    }
+                }
+
+                stage('promotion-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for promotion-service..."
                         sh './gradlew :services:circleguard-promotion-service:test'
-                    },
-                    'notification-service-tests': {
+                    }
+                }
+
+                stage('notification-service-tests') {
+                    steps {
+                        echo "🧪 Running unit tests for notification-service..."
                         sh './gradlew :services:circleguard-notification-service:test'
                     }
-                )
-
-                // Publicar resultados JUnit
-                junit '**/build/test-results/test/*.xml'
-                echo "✅ Unit tests completed"
+                }
             }
         }
 
         stage('Docker Build & Push') {
             steps {
-                echo "🐳 Building and pushing Docker images to ACR..."
+                echo "🐳 Building and pushing Docker images to Docker Hub..."
                 withCredentials([usernamePassword(
-                    credentialsId: 'ACR_CREDENTIALS',
-                    usernameVariable: 'ACR_USERNAME',
-                    passwordVariable: 'ACR_PASSWORD'
+                    credentialsId: 'DOCKER_HUB_CREDENTIALS',
+                    usernameVariable: 'DOCKER_USERNAME',
+                    passwordVariable: 'DOCKER_PASSWORD'
                 )]) {
                     sh '''
-                        echo ${ACR_PASSWORD} | docker login -u ${ACR_USERNAME} --password-stdin ${ACR_REGISTRY}
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
 
                         # Build and push all 6 images
                         for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
                             SERVICE_FULL="circleguard-${SERVICE}"
-                            IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
+                            IMAGE_TAG="${REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
+                            IMAGE_LATEST="${REGISTRY}/${SERVICE_FULL}:stage-latest"
 
                             echo "📦 Building image: ${IMAGE_TAG}"
                             docker build \
                               -f services/${SERVICE_FULL}/Dockerfile \
                               -t ${IMAGE_TAG} \
+                              -t ${IMAGE_LATEST} \
                               .
 
                             echo "📤 Pushing image: ${IMAGE_TAG}"
                             docker push ${IMAGE_TAG}
+
+                            echo "📤 Pushing latest tag: ${IMAGE_LATEST}"
+                            docker push ${IMAGE_LATEST}
                         done
 
                         # Clean up old images
@@ -132,11 +171,11 @@ pipeline {
                         # Deploy all services
                         for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
                             SERVICE_FULL="circleguard-${SERVICE}"
-                            MANIFEST="k8s/stage/${SERVICE_FULL}.yaml"
+                            MANIFEST="k8s/services/stage/${SERVICE_FULL}.yml"
 
                             if [ -f "$MANIFEST" ]; then
-                                echo "Deploying ${SERVICE_FULL}..."
-                                IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
+                                echo "Deploying ${SERVICE_FULL} to STAGE..."
+                                IMAGE_TAG="${REGISTRY}/${SERVICE_FULL}:stage-${BUILD_NUMBER}"
                                 sed -i "s|image:.*${SERVICE_FULL}.*|image: ${IMAGE_TAG}|g" "$MANIFEST"
                                 kubectl apply -f "$MANIFEST" -n stage
                             else
@@ -144,34 +183,43 @@ pipeline {
                             fi
                         done
 
-                        echo "✅ Deployment initiated"
+                        echo "✅ Deployment to STAGE initiated"
                         sleep 30
-                        kubectl get pods -n stage
+                        kubectl get pods -n stage -o wide
                     '''
                 }
             }
         }
 
         stage('Integration Tests') {
-            steps {
-                echo "🔗 Running integration tests..."
-                parallel(
-                    'auth-integration': {
+            parallel {
+                stage('auth-integration') {
+                    steps {
+                        echo "🔗 Running integration tests for auth-service..."
                         sh './gradlew :services:circleguard-auth-service:integrationTest -P integration || true'
-                    },
-                    'form-integration': {
+                    }
+                }
+
+                stage('form-integration') {
+                    steps {
+                        echo "🔗 Running integration tests for form-service..."
                         sh './gradlew :services:circleguard-form-service:integrationTest -P integration || true'
-                    },
-                    'gateway-integration': {
+                    }
+                }
+
+                stage('gateway-integration') {
+                    steps {
+                        echo "🔗 Running integration tests for gateway-service..."
                         sh './gradlew :services:circleguard-gateway-service:integrationTest -P integration || true'
-                    },
-                    'promotion-integration': {
+                    }
+                }
+
+                stage('promotion-integration') {
+                    steps {
+                        echo "🔗 Running integration tests for promotion-service..."
                         sh './gradlew :services:circleguard-promotion-service:integrationTest -P integration || true'
                     }
-                )
-
-                junit '**/build/test-results/integrationTest/*.xml' || true
-                echo "✅ Integration tests completed"
+                }
             }
         }
 
