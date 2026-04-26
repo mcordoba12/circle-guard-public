@@ -44,14 +44,14 @@ pipeline {
         stage('Build auth-service') {
             steps {
                 echo "🏗️  Building circleguard-auth-service..."
-                sh './gradlew :services:circleguard-auth-service:build'
+                sh './gradlew :services:circleguard-auth-service:bootJar -x test'
             }
         }
 
         stage('Build form-service') {
             steps {
                 echo "🏗️  Building circleguard-form-service..."
-                sh './gradlew :services:circleguard-form-service:build'
+                sh './gradlew :services:circleguard-form-service:bootJar -x test'
             }
         }
 
