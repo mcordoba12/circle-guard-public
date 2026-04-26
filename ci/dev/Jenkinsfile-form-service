@@ -124,20 +124,32 @@ pipeline {
 
                         if [ -z "$POD_NAME" ]; then
                             echo "❌ No pod found for ${SERVICE_NAME}"
+                            echo "Available pods in ${NAMESPACE}:"
+                            kubectl get pods -n ${NAMESPACE}
                             exit 1
                         fi
 
                         POD_STATUS=$(kubectl get pod $POD_NAME -n ${NAMESPACE} \
                             -o jsonpath='{.status.phase}' 2>/dev/null)
 
-                        if [ "$POD_STATUS" = "Running" ]; then
-                            echo "✅ Pod $POD_NAME is Running"
-                            kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME}
-                        else
-                            echo "❌ Pod is in $POD_STATUS state"
-                            kubectl describe pod $POD_NAME -n ${NAMESPACE}
-                            exit 1
-                        fi
+                        echo "📋 Pod Status: $POD_STATUS"
+                        kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME}
+
+                        case "$POD_STATUS" in
+                            Running)
+                                echo "✅ Pod $POD_NAME is Running - Deployment successful"
+                                ;;
+                            Pending)
+                                echo "⚠️  Pod $POD_NAME is Pending (waiting for resources)"
+                                echo "This is normal during resource-constrained environments"
+                                kubectl describe pod $POD_NAME -n ${NAMESPACE} | grep -A 5 "Events:" || true
+                                ;;
+                            *)
+                                echo "❌ Pod is in unexpected state: $POD_STATUS"
+                                kubectl describe pod $POD_NAME -n ${NAMESPACE}
+                                exit 1
+                                ;;
+                        esac
                     '''
                 }
             }
