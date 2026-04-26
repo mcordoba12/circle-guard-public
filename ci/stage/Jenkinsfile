@@ -43,14 +43,14 @@ pipeline {
         stage('Unit Tests auth-service') {
             steps {
                 echo "🧪 Running unit tests for auth-service..."
-                sh './gradlew :services:circleguard-auth-service:test'
+                sh './gradlew :services:circleguard-auth-service:unitTest'
             }
         }
 
         stage('Unit Tests form-service') {
             steps {
                 echo "🧪 Running unit tests for form-service..."
-                sh './gradlew :services:circleguard-form-service:test'
+                sh './gradlew :services:circleguard-form-service:unitTest'
             }
         }
 
