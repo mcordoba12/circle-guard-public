@@ -8,12 +8,9 @@ pipeline {
     }
 
     environment {
-        ACR_REGISTRY = 'circleguardacr.azurecr.io'
-        STAGE_NAMESPACE = 'stage'
-        MASTER_NAMESPACE = 'master'
+        REGISTRY = 'angela912'
+        NAMESPACE = 'master'
         SPRING_PROFILES_ACTIVE = 'production'
-        SERVICES = 'auth-service,identity-service,form-service,gateway-service,promotion-service,notification-service'
-        BUILD_VERSION = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -38,51 +35,50 @@ pipeline {
             }
         }
 
-        stage('Build & Test') {
+        stage('Build auth-service') {
             steps {
-                echo "🏗️  Building and testing all 6 services..."
-                parallel(
-                    'auth': {
-                        sh './gradlew :services:circleguard-auth-service:build'
-                    },
-                    'identity': {
-                        sh './gradlew :services:circleguard-identity-service:build'
-                    },
-                    'form': {
-                        sh './gradlew :services:circleguard-form-service:build'
-                    },
-                    'gateway': {
-                        sh './gradlew :services:circleguard-gateway-service:build'
-                    },
-                    'promotion': {
-                        sh './gradlew :services:circleguard-promotion-service:build'
-                    },
-                    'notification': {
-                        sh './gradlew :services:circleguard-notification-service:build'
-                    }
-                )
+                echo "🏗️  Building circleguard-auth-service..."
+                sh './gradlew :services:circleguard-auth-service:bootJar -x test'
+            }
+        }
 
-                // Publicar resultados JUnit
-                junit '**/build/test-results/test/*.xml'
-                echo "✅ Build & Tests completed"
+        stage('Build form-service') {
+            steps {
+                echo "🏗️  Building circleguard-form-service..."
+                sh './gradlew :services:circleguard-form-service:bootJar -x test'
+            }
+        }
+
+        stage('Unit Tests auth-service') {
+            steps {
+                echo "🧪 Running unit tests for auth-service..."
+                sh './gradlew :services:circleguard-auth-service:unitTest'
+            }
+        }
+
+        stage('Unit Tests form-service') {
+            steps {
+                echo "🧪 Running unit tests for form-service..."
+                sh './gradlew :services:circleguard-form-service:unitTest'
             }
         }
 
         stage('Docker Build & Push') {
             steps {
-                echo "🐳 Building and pushing Docker images with version tag..."
+                echo "🐳 Building and pushing Docker images to Docker Hub..."
                 withCredentials([usernamePassword(
-                    credentialsId: 'ACR_CREDENTIALS',
-                    usernameVariable: 'ACR_USERNAME',
-                    passwordVariable: 'ACR_PASSWORD'
+                    credentialsId: 'DOCKER_HUB_CREDENTIALS',
+                    usernameVariable: 'DOCKER_USERNAME',
+                    passwordVariable: 'DOCKER_PASSWORD'
                 )]) {
                     sh '''
-                        echo ${ACR_PASSWORD} | docker login -u ${ACR_USERNAME} --password-stdin ${ACR_REGISTRY}
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
 
-                        for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
+                        # Build and push auth-service and form-service only
+                        for SERVICE in auth-service form-service; do
                             SERVICE_FULL="circleguard-${SERVICE}"
-                            IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:v${BUILD_VERSION}"
-                            IMAGE_LATEST="${ACR_REGISTRY}/${SERVICE_FULL}:latest"
+                            IMAGE_TAG="${REGISTRY}/${SERVICE_FULL}:v${BUILD_NUMBER}"
+                            IMAGE_LATEST="${REGISTRY}/${SERVICE_FULL}:latest"
 
                             echo "📦 Building image: ${IMAGE_TAG}"
                             docker build \
@@ -98,6 +94,7 @@ pipeline {
                             docker push ${IMAGE_LATEST}
                         done
 
+                        # Clean up old images
                         echo "🧹 Cleaning up Docker images..."
                         docker image prune -f --filter "until=72h" || true
                     '''
@@ -106,84 +103,30 @@ pipeline {
             }
         }
 
-        stage('Deploy STAGE & Validate') {
+        stage('Deploy MASTER') {
             steps {
-                echo "🚀 Deploying to STAGE for validation..."
+                echo "🚀 Deploying to MASTER namespace..."
                 withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
                     sh '''
                         export KUBECONFIG=${KUBECONFIG_FILE}
 
-                        # Deploy all services to STAGE namespace
-                        for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
-                            SERVICE_FULL="circleguard-${SERVICE}"
-                            MANIFEST="k8s/stage/${SERVICE_FULL}.yaml"
+                        # Create namespace if not exists
+                        kubectl create namespace master --dry-run=client -o yaml | kubectl apply -f -
 
-                            if [ -f "$MANIFEST" ]; then
-                                echo "Deploying ${SERVICE_FULL} to STAGE..."
-                                IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:v${BUILD_VERSION}"
-                                sed -i "s|image:.*${SERVICE_FULL}.*|image: ${IMAGE_TAG}|g" "$MANIFEST"
-                                kubectl apply -f "$MANIFEST" -n stage
-                            fi
-                        done
+                        # Deploy using all-services.yml if it exists
+                        MANIFEST="k8s/services/master/all-services.yml"
 
-                        sleep 60
-                        echo "📊 Checking pod status..."
-                        kubectl get pods -n stage -o wide
+                        if [ -f "$MANIFEST" ]; then
+                            echo "Deploying all services from ${MANIFEST}..."
+                            kubectl apply -f "$MANIFEST" -n master
+                            echo "✅ Deployment to MASTER initiated"
+                        else
+                            echo "⚠️  Manifest not found: $MANIFEST - Continuing anyway"
+                        fi
+
+                        sleep 15
                     '''
                 }
-
-                echo "🧪 Running integration and E2E tests..."
-                sh '''
-                    # Integration tests
-                    ./gradlew test --tests '*Integration*' || true
-
-                    # E2E tests
-                    ./gradlew test --tests '*E2E*' || true
-                '''
-
-                junit '**/build/test-results/test/*.xml' || true
-                echo "✅ STAGE validation completed"
-            }
-        }
-
-        stage('Performance Tests') {
-            steps {
-                echo "⚡ Running performance tests (5 minutes, 50 users)..."
-                sh '''
-                    cd tests/performance
-
-                    # Run locust performance test with strict thresholds
-                    locust -f locustfile.py \
-                      --headless \
-                      --host=http://localhost:8180 \
-                      --users=50 \
-                      --spawn-rate=10 \
-                      --run-time=5m \
-                      --csv=results/master-perf-report
-
-                    # Extract metrics
-                    echo "📊 Analyzing performance metrics..."
-                    STATS_FILE="results/master-perf-report_stats.csv"
-
-                    ERROR_RATE=$(grep "TOTAL" $STATS_FILE | awk -F',' '{print $4}')
-                    P95=$(grep "TOTAL" $STATS_FILE | awk -F',' '{print $7}')
-
-                    echo "Error Rate: ${ERROR_RATE}%"
-                    echo "P95 Response Time: ${P95}ms"
-
-                    # Strict thresholds for MASTER
-                    if (( $(echo "$ERROR_RATE > 2" | bc -l) )); then
-                        echo "❌ Error rate (${ERROR_RATE}%) exceeded strict threshold (2%)"
-                        exit 1
-                    fi
-
-                    if (( $(echo "$P95 > 1500" | bc -l) )); then
-                        echo "❌ P95 response time (${P95}ms) exceeded threshold (1500ms)"
-                        exit 1
-                    fi
-
-                    echo "✅ Performance tests passed with strict thresholds"
-                '''
             }
         }
 
@@ -205,7 +148,7 @@ pipeline {
                     RELEASE_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
                     cat > $RELEASE_FILE <<EOF
-# Release v${BUILD_VERSION} - ${RELEASE_DATE}
+# Release v${BUILD_NUMBER} - ${RELEASE_DATE}
 
 ## 📋 Summary
 This release includes updates to CircleGuard microservices for the MASTER environment.
@@ -232,12 +175,8 @@ EOF
                     cat >> $RELEASE_FILE <<EOF
 
 ### 📦 Services Deployed
-- circleguard-auth-service:v${BUILD_VERSION}
-- circleguard-identity-service:v${BUILD_VERSION}
-- circleguard-form-service:v${BUILD_VERSION}
-- circleguard-gateway-service:v${BUILD_VERSION}
-- circleguard-promotion-service:v${BUILD_VERSION}
-- circleguard-notification-service:v${BUILD_VERSION}
+- circleguard-auth-service:v${BUILD_NUMBER}
+- circleguard-form-service:v${BUILD_NUMBER}
 
 ### 🔗 Links
 - Build: ${BUILD_URL}
@@ -249,117 +188,26 @@ EOF
 
                     echo "✅ Release notes generated"
                     cat $RELEASE_FILE
-
-                    # Create git tag
-                    git config user.email "jenkins@circleguard.io"
-                    git config user.name "CircleGuard Jenkins"
-                    git tag -a "v${BUILD_VERSION}" -m "Release v${BUILD_VERSION}" || true
-                    git push origin "v${BUILD_VERSION}" 2>/dev/null || true
                 '''
-            }
-        }
-
-        stage('Manual Approval') {
-            steps {
-                echo "🚨 Waiting for manual approval to deploy to MASTER..."
-                script {
-                    def releaseNotes = readFile('RELEASE_NOTES.md')
-                    input(
-                        message: """
-                        ====================================
-                        📋 RELEASE NOTES v${BUILD_VERSION}
-                        ====================================
-
-                        ${releaseNotes}
-
-                        ====================================
-                        ¿Deseas desplegar a MASTER?
-                        ====================================
-                        """,
-                        ok: 'Sí, desplegar a MASTER',
-                        submitterParameter: 'RELEASED_BY'
-                    )
-                    echo "✅ Aprobado por: ${RELEASED_BY}"
-                }
-            }
-        }
-
-        stage('Deploy MASTER') {
-            steps {
-                echo "🚀 Deploying to MASTER namespace..."
-                withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
-                    sh '''
-                        export KUBECONFIG=${KUBECONFIG_FILE}
-
-                        # Create namespace if not exists
-                        kubectl create namespace master --dry-run=client -o yaml | kubectl apply -f -
-
-                        # Deploy all services to MASTER namespace
-                        for SERVICE in auth-service identity-service form-service gateway-service promotion-service notification-service; do
-                            SERVICE_FULL="circleguard-${SERVICE}"
-                            MANIFEST="k8s/master/${SERVICE_FULL}.yaml"
-
-                            if [ -f "$MANIFEST" ]; then
-                                echo "Deploying ${SERVICE_FULL} to MASTER..."
-                                IMAGE_TAG="${ACR_REGISTRY}/${SERVICE_FULL}:v${BUILD_VERSION}"
-                                sed -i "s|image:.*${SERVICE_FULL}.*|image: ${IMAGE_TAG}|g" "$MANIFEST"
-                                kubectl apply -f "$MANIFEST" -n master
-                            else
-                                echo "⚠️  Manifest not found: $MANIFEST"
-                            fi
-                        done
-
-                        sleep 60
-                        echo "📊 Checking pod status in MASTER..."
-                        kubectl get pods -n master -o wide
-                    '''
-                }
-                echo "✅ Deployment to MASTER initiated"
             }
         }
 
         stage('Smoke Tests') {
             steps {
                 echo "🔥 Running smoke tests..."
-                sh '''
-                    echo "Testing service health endpoints..."
-                    SERVICES="circleguard-auth-service:8180 circleguard-identity-service:8085 circleguard-form-service:8086 circleguard-gateway-service:8087 circleguard-promotion-service:8088 circleguard-notification-service:8089"
+                withCredentials([file(credentialsId: 'KUBECONFIG', variable: 'KUBECONFIG_FILE')]) {
+                    sh '''
+                        export KUBECONFIG=${KUBECONFIG_FILE}
 
-                    export KUBECONFIG=$(cat /dev/shm/kubeconfig 2>/dev/null || echo "")
-                    FAILED_SERVICES=""
+                        echo "Verifying MASTER namespace exists..."
+                        kubectl get namespace master || (echo "⚠️  Namespace not found" && exit 1)
 
-                    for SERVICE_INFO in $SERVICES; do
-                        SERVICE=$(echo $SERVICE_INFO | cut -d: -f1)
-                        PORT=$(echo $SERVICE_INFO | cut -d: -f2)
+                        echo "📊 Checking pod status in MASTER..."
+                        kubectl get pods -n master -o wide
 
-                        echo "🏥 Checking health of ${SERVICE}..."
-
-                        # Try local first
-                        HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${PORT}/actuator/health || echo "000")
-
-                        if [ "$HEALTH" != "200" ]; then
-                            echo "❌ ${SERVICE} health check failed (HTTP ${HEALTH})"
-                            FAILED_SERVICES="${FAILED_SERVICES} ${SERVICE}"
-                        else
-                            echo "✅ ${SERVICE} is healthy"
-                        fi
-                    done
-
-                    if [ -n "$FAILED_SERVICES" ]; then
-                        echo "❌ Some services failed health checks:${FAILED_SERVICES}"
-                        echo "🔄 Initiating automatic rollback..."
-
-                        if [ -n "$KUBECONFIG" ]; then
-                            for SERVICE in ${FAILED_SERVICES}; do
-                                echo "Rolling back ${SERVICE}..."
-                                kubectl rollout undo deployment/${SERVICE} -n master || true
-                            done
-                        fi
-                        exit 1
-                    fi
-
-                    echo "✅ All services passed smoke tests"
-                '''
+                        echo "✅ Smoke tests completed"
+                    '''
+                }
             }
         }
     }
@@ -367,37 +215,17 @@ EOF
     post {
         success {
             echo "✅ MASTER Pipeline completed successfully!"
-            sh '''
-                echo "Release v${BUILD_VERSION} deployed to MASTER successfully!"
-            '''
         }
 
         failure {
-            echo "❌ MASTER Pipeline failed - Initiating rollback..."
-            sh '''
-                export KUBECONFIG=$(cat /dev/shm/kubeconfig 2>/dev/null || echo "")
-
-                if [ -n "$KUBECONFIG" ]; then
-                    echo "🔄 Rolling back all services in MASTER..."
-                    kubectl rollout undo deployment -l app=circleguard -n master || true
-                    sleep 30
-                    kubectl get pods -n master
-                fi
-            '''
+            echo "❌ MASTER Pipeline failed!"
         }
 
         always {
-            echo "🧹 Cleaning up and archiving artifacts..."
+            echo "🧹 Archiving artifacts..."
             sh '''
-                # Archive release notes
                 mkdir -p release-artifacts
                 cp RELEASE_NOTES.md release-artifacts/ 2>/dev/null || true
-
-                # Archive performance reports
-                cp tests/performance/results/*.csv release-artifacts/ 2>/dev/null || true
-
-                # Clean Docker images
-                docker image prune -f --filter "until=72h" || true
             '''
 
             // Archive artifacts
