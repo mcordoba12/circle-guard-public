@@ -13,6 +13,7 @@ data:
   SPRING_APPLICATION_NAME: "circleguard-form-service"
   SERVER_PORT: "8086"
   LOGGING_LEVEL_COM_CIRCLEGUARD: "DEBUG"
+  SPRING_FLYWAY_ENABLED: "false"
   SPRING_FLYWAY_REPAIR_ON_MIGRATE: "true"
   SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
   SPRING_FLYWAY_OUT_OF_ORDER: "true"
@@ -66,6 +67,8 @@ spec:
         - configMapRef:
             name: circleguard-infra-config
         env:
+        - name: SPRING_FLYWAY_ENABLED
+          value: "false"
         - name: SPRING_DATASOURCE_URL
           value: "jdbc:postgresql://postgres.dev.svc.cluster.local:5432/circleguard"
         - name: SPRING_DATASOURCE_USERNAME
