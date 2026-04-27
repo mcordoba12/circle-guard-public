@@ -95,16 +95,14 @@ spec:
             memory: "256Mi"
             cpu: "150m"
         livenessProbe:
-          httpGet:
-            path: /actuator/health
+          tcpSocket:
             port: 8087
           initialDelaySeconds: 120
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 5
         readinessProbe:
-          httpGet:
-            path: /actuator/health
+          tcpSocket:
             port: 8087
           initialDelaySeconds: 90
           periodSeconds: 15
