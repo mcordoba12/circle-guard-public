@@ -67,7 +67,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: auth-service
-        image: circleguardacr.azurecr.io/circleguard-auth-service:latest
+        image: angela912/circleguard-auth-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8180
@@ -121,8 +121,6 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1
@@ -226,7 +224,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: identity-service
-        image: circleguardacr.azurecr.io/circleguard-identity-service:latest
+        image: angela912/circleguard-identity-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8083
@@ -278,8 +276,6 @@ spec:
             port: 8083
           initialDelaySeconds: 30
           periodSeconds: 10
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1
@@ -376,7 +372,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: form-service
-        image: circleguardacr.azurecr.io/circleguard-form-service:latest
+        image: angela912/circleguard-form-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8086
@@ -428,8 +424,6 @@ spec:
             port: 8086
           initialDelaySeconds: 30
           periodSeconds: 10
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1
@@ -526,7 +520,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: promotion-service
-        image: circleguardacr.azurecr.io/circleguard-promotion-service:latest
+        image: angela912/circleguard-promotion-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8088
@@ -578,8 +572,6 @@ spec:
             port: 8088
           initialDelaySeconds: 30
           periodSeconds: 10
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1
@@ -676,7 +668,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: notification-service
-        image: circleguardacr.azurecr.io/circleguard-notification-service:latest
+        image: angela912/circleguard-notification-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8082
@@ -728,8 +720,6 @@ spec:
             port: 8082
           initialDelaySeconds: 30
           periodSeconds: 10
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1
@@ -826,7 +816,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: gateway-service
-        image: circleguardacr.azurecr.io/circleguard-gateway-service:latest
+        image: angela912/circleguard-gateway-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8087
@@ -878,8 +868,6 @@ spec:
             port: 8087
           initialDelaySeconds: 30
           periodSeconds: 10
-      imagePullSecrets:
-      - name: acr-credentials
 
 ---
 apiVersion: v1

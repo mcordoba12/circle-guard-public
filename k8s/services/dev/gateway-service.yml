@@ -108,8 +108,6 @@ spec:
           periodSeconds: 15
           timeoutSeconds: 5
           failureThreshold: 5
-      imagePullSecrets:
-      - name: acr-credentials
       restartPolicy: Always
       terminationGracePeriodSeconds: 30
 
